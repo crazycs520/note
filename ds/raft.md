@@ -11,9 +11,128 @@
 
 **Raft is a consensus algorithmfor managing a replicated log.**
 
-## Raft consensus algorithm
+##Figure 2: important
 
-Figure 2: important
+* State
+
+  ```go
+  type Raft struct{
+    
+  	//persistent state on all server
+  	CurrentTerm int        //latest term server has seen ,initialized to 0
+  	VoteFor     int        //candidateID that receive vote in currnt term
+  	Logs        []LogEntry //log entries , first index is 1
+
+  	// volatile state on all server
+  	CommitIndex int //index of highest log entry known to be committed , initialized ti 0
+  	LastApplied int //index of highest log entry applied to state machine,initialized to 0
+
+  	// volatile state on leaders
+  	NextIndex  []int //each server's index of next log entry to send to that server,initalized to 							leader last log +1
+  	MatchIndex []int //each server's  index of highest log entry known wo be replicated on 									server,initialized to 0
+    
+    	// 已获得的投票数
+  	grantedVotesCount int
+
+  	//state：follower , candidate, leader
+  	State   string
+
+  	//election timeout
+  	ElectionTimer *time.Timer
+  }
+  ```
+
+* AppendEntries RPC
+
+  Invoked by leader to replicate log entries;
+
+  Also used as heartbeat
+
+  * Arguments:
+
+    ```Go
+    type AppendEntriesArgs struct {
+    	Term         int        //leader’s term
+    	LeaderID     int        //so follower can redirect clients
+    	PreLogIndex  int        //index of log entry immediately preceding new ones
+    	PreLogTerm   int        //term of prevLogIndex entry
+    	Entries      []LogEntry //log entries to store (empty for heartbeat;may send more than one for efficiency)
+    	LeaderCommit int        //leader’s commitIndex
+    }
+    ```
+
+  * Results
+
+    ```Go
+    type AppendEntryReply struct {
+    	Term        int  //currentTerm, for leader to update itself
+    	Success     bool //true if follower contained entry matching prevLogIndex and prevLogTerm
+    	CommitIndex int
+    }
+    ```
+
+  * Receiver implementation
+
+    1. Reply false if term < currentTerm (§5.1)
+    2. Reply false if log doesn’t contain an entry at prevLogIndex whose term matches prevLogTerm (§5.3)
+    3. If an existing entry conflicts with a new one (same index but different terms), delete the existing entry and all that follow it (§5.3)
+    4. Append any new entries not already in the log
+    5. If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
+
+* RequestVote RPC
+
+  Invoked by candidates to gather votes (§5.2).
+
+  * Arguments
+
+    ```Go
+    type RequestVoteArgs struct {
+    	Term         int //candidate’s term
+    	CandidateID  int //candidate requesting vote
+    	LastLogIndex int //index of candidate’s last log entry (§5.4)
+    	LastLogTerm  int //term of candidate’s last log entry (§5.4)
+    }
+    ```
+
+  * Results
+
+    ```Go
+    type RequestVoteReply struct {
+    	Term        int  // currentTerm, for candidate to update itself
+    	VoteGranted bool // true means candidate received vote
+    }
+    ```
+
+  * Receiver implementation
+
+    1. Reply false if term < currentTerm (§5.1)
+    2. If votedFor is null or candidateId, and candidate’s log is at least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
+    3. ​
+
+* Rules for Servers
+
+  * All Servers
+    * If commitIndex > lastApplied: increment lastApplied, apply log[lastApplied] to state machine (§5.3)
+    * If RPC request or response contains term T > currentTerm:  set currentTerm = T, convert to follower (§5.1)
+  * Followers
+    * Respond to RPCs from candidates and leaders
+    * If election timeout elapses without receiving AppendEntries RPC from current leader or granting vote to candidate: convert to candidate
+  * Candidates
+    * On conversion to candidate, start election:
+      1. Increment currentTerm
+      2. Vote for self
+      3. Reset election timer
+      4. Send RequestVote RPCs to all other servers
+    * If votes received from majority of servers: become leader
+    * If AppendEntries RPC received from new leader: convert to follower
+    * If election timeout elapses: start new election
+  * Leaders
+    * Upon election: send initial empty AppendEntries RPCs (heartbeat) to each server; repeat during idle periods to prevent election timeouts (§5.2)
+    * If command received from client: append entry to local log, respond after entry applied to state machine (§5.3)
+    * If last log index ≥ nextIndex for a follower: send AppendEntries RPC with log entries starting at nextIndex
+      * If successful: update nextIndex and matchIndex for follower (§5.3)
+      * If AppendEntries fails because of log inconsistency: decrement nextIndex and retry (§5.3)
+    * If there exists an N such that N > commitIndex, a majority of matchIndex[i] ≥ N, and log[N].term == currentTerm: set commitIndex = N (§5.3, §5.4).
 
 ### Raft Basic
 
@@ -89,4 +208,46 @@ Figure 2: important
 * which of two logs is **more up-to-date** by comparing the index and term of the last entries in the logs.
 
 #### Committing entries from previous terms
+
+<img src="https://raw.githubusercontent.com/crazycs520/images/master/raft5.png" style="zoom:40%" />
+
+* (a)  S1 is leader and partially replicates the log entry at index 2.
+* (b)  S1 crashes; S5 is elected leader for term 3 with votes from S3, S4, and itself, and accepts a different entry at log index 2.
+* (c)  S5 crashes; S1 restarts, is elected leader, and continues replication. At this point, the log entry from term 2 has been replicated on a majority of the servers, but it is not committed.
+* (d)   If S1 crashes as in, S5 could be elected leader (with votes from S2, S3, and S4) and overwrite the entry with its own entry from term 3. 
+* **(e)  if S1 replicates an entry from its current term on a majority of the servers before crashing**, then this entry is committed (S5 cannot win an election). At this point all preceding entries in the log are committed as well.
+
+1. QA: how to figure out this situation ?
+
+   reference : https://groups.google.com/forum/#!topic/raft-dev/d-3XQbyAg2Y
+
+   1. after winning the election, the leader MUST commit a no-op entry to the log. Only after that it can be considered the active leader.
+
+ 
+
+
+
+# lab2 Raft
+
+## code note
+
+### config.go
+
+```Go
+type config struct {
+	mu        sync.Mutex
+	t         *testing.T
+	net       *labrpc.Network
+	n         int
+	done      int32 // tell internal threads to die
+	rafts     []*Raft
+	applyErr  []string // from apply channel readers
+	connected []bool   // whether each server is on the net
+	saved     []*Persister
+	endnames  [][]string    // the port file names each sends to
+	logs      []map[int]int // copy of each server's committed entries
+}
+```
+
+
 
