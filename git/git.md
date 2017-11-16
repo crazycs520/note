@@ -12,7 +12,21 @@
 
    ```
    git remote add origin git@github.com:crazycs520/util.git
+   git remote add origin git@github.com:crazycs520/mit6.824-2017-golab.git
+
    ```
 
    ​
+
+
+```Shell
+git add
+git status
+git commit -m " "
+git log
+git reset --hard HEAD^
+git reset --hard ***** #commit number
+git reflog 	#记录每次的命令
+
+```
 

@@ -1,12 +1,16 @@
-
-
-
-
 # 基础篇
 
 ## 工具
 
 [VS Code 搭建 Go 开发IDE](https://www.wonsikin.me/2016/06/06/VS-Code-%E6%90%AD%E5%BB%BA-Go-%E5%BC%80%E5%8F%91IDE/)
+
+[golang使用vendor目录来管理依赖包](http://www.jianshu.com/p/e52e3e1ad1c0)
+
+## 从源码安装Go
+
+[Installing Go from source](https://golang.org/doc/install/source)
+
+需要注意的是，在 ./all.bash`安装 之前，要设置`$GOROOT_BOOTSTRAP` 环境变量，设置为已有的GoHome，比如`/usr/local/go/`  。
 
 ## File
 
@@ -15,6 +19,8 @@
 ​	
 
 ## map
+
+map的实现：https://guidao.github.io/go_map.html， https://tiancaiamao.gitbooks.io/go-internals/content/zh/02.3.html
 
 参考（以下是摘录） [Go maps in action](https://blog.golang.org/go-maps-in-action)
 
@@ -101,7 +107,11 @@ n := hits[Key{"/ref/spec", "ch"}]	//how many Swiss people have read the spec:
 
 ### **Concurrency**([sync.map](https://golang.org/pkg/sync/#Map))
 
+https://github.com/orcaman/concurrent-map  
+
 ​	参考:[blog](http://colobu.com/2017/07/11/dive-into-sync-Map/) 
+
+
 
 ​	[Maps are not safe for concurrent use](http://golang.org/doc/faq#atomic_maps) , but **[sync.Map](https://golang.org/pkg/sync/#Map) is a concurrent map with amortized-constant-time loads, stores, and deletes. It is safe for multiple goroutines to call a Map's methods concurrently**.
 
@@ -157,5 +167,21 @@ Go 1 兼容性指南这么说：
 导入unsafe软件包可能取决于Go实现的内部属性。 我们保留对可能导致程序崩溃的实现进行更改的权利。
 ```
 
+
+
 # 并发篇
+
+[Go by Example: Worker Pools](https://gobyexample.com/worker-pools) : 用channels 实现jobs 分发和 result 返回
+
+[调试利器：dump goroutine 的 stacktrace](http://colobu.com/2016/12/21/how-to-dump-goroutine-stack-traces/)
+
+
+
+
+
+
+
+# 深入解析
+
+[GoRoutine 实现原理的视频，强推，讲的很好](https://www.youtube.com/watch?v=KBZlN0izeiY)
 

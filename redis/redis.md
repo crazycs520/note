@@ -216,9 +216,9 @@ Redis is an in-memory , non-relational(NoSQL)  database; used as a database, cac
 
 10. 获取部分字符串
 
-   ```
-   getrange key start end
-   ```
+  ```
+  getrange key start end
+  ```
 
 #### 典型应用
 
@@ -688,9 +688,9 @@ zset的成员是唯一的,但分数(score)却可以重复。
 
 10. 删除指定排名内的升序元素，
 
-   ```
-   zremrangebyrank key start end
-   ```
+  ```
+  zremrangebyrank key start end
+  ```
 
 11. 删除指定分数范围的成员
 
@@ -1129,5 +1129,243 @@ QUEUED
    有些场景需要在事务前，确保事务中的key 没被其他客户端修改过，才执行，否则不执行。Redis提供了watch命令来解决这类问题。
 
 
-
 redis 只提供了简单的事务功能，之所以简单，是因为不支持回滚特性，同时无法实现命令之间的逻辑特性。此时需要用Lua脚本实现更强大事务功能。
+
+
+
+
+
+# 理解内存
+
+##内存消耗
+
+`info memory`
+
+```shell
+127.0.0.1:6379> info memory #查看内存使用统计
+used_memory:1014304		#redis 内存分配的内存总量
+used_memory_human:990.53K
+used_memory_rss:2088960	#从操作系统的角度显示redis进程占用的物理内存
+used_memory_rss_human:1.99M
+used_memory_peak:1014304	#内存使用最大值
+used_memory_peak_human:990.53K
+used_memory_lua:37888		#lua 引擎消耗的内存
+used_memory_lua_human:37.00K
+mem_fragmentation_ratio:2.06 	#内存碎片率
+mem_allocator:libc		#redis 使用的内存分配器
+```
+
+mem_fragmentation_ratio：used_memory_rss / used_memory 
+
+* 当 > 1 时，used_memory_rss - used_memory   如果相差的很大，说明碎片率严重 ；  
+* **当 < 1 时， 这一般出现在操作系统把redis 内存交换( swap )到 硬盘导致，需要特别注意**
+
+### 内存消耗的划分
+
+* 自身内存
+* 对象内存
+  * Key 对象，故避免使用过长的键
+  * value 对象
+* 缓冲内存
+  * 客户端缓冲
+    * 输入缓冲，不可控，最大为 1G
+    * 输出缓冲，通过`client-output-buffer-limit` 参数控制
+  * 复制积压缓冲，用于 实现部分复制功能，根据`repl-backlog-size` 参数控制，默认1M，可以设置较大，如100M，因为所有主节点只有一个，所有从节点共享此缓冲
+  * AOF缓冲，用于AOF重写期间保存近期写入命令，不可控，取决于AOF重写时间和写入命令量
+* 内存碎片
+
+**used_memory =  自身内存 + 对象内存 + 缓冲内存**
+
+**used_memory_rss - used_memory = 内存碎片**
+
+**内存碎片**
+
+以下操作容易出现高内存碎片
+
+* 频繁的更新操作，如 append , setrange
+* 大量过期键删除
+
+解决方法
+
+* 数据对其，尽量采用数字类型或者固定长度的字符串
+* 安全重启，常用于高可用架构，如sentinel 或 cluster ， 把内存过高的主节点转换为从节点。
+
+**子进程内存消耗**
+
+主要指AOF/RDB 时创建的子进程。因为linux 具有写时复制 （ copy-on-write） ，父子进程会共享相同的内存页。
+
+注意，建议关闭linux 中的 transparent huge page ( THP )  机制，虽然开启会加快 fork子进程的速度，但 copy-on-write 期间，复制内存页的单位会从 4K 变为 2M , 如果写入命令较多，可能会造成过度内存损耗。
+
+## 内存管理
+
+**设置内存上限**
+
+`maxmemory` 
+
+* 用于缓存场景，当内存超出maxmemory 后，使用LRU等策略释放内存
+* 防止所用内存超过服务器物理内存
+
+**动态调整内存上限**
+
+```
+config set maxmemory 4GB
+```
+
+**内存回收策略**
+
+* 删除到达过期时间的键对象
+  * 惰性删除
+  * 定时任务删除，默认每秒运行10次（通过配置hz 控制）
+* 内存使用超过 maxmemory 触发内存溢出控制策略，由`maxmemory-policy`参数控制，`config set maxmemory-policy {policy}`动态配置
+  * noeviction : 默认策略，不删除任何数据，拒绝所有写入操作并返回客户端错误信息 OOM
+  * volatile-lru : 根据LRU算法删除超时属性的键，直到腾出空间
+  * allkeys-lru : 根据LRU算法删除所有键，直到腾出空间
+  * Allkeys-random : 随机删除所有键，直到腾出空间
+  * volatile-random : 随机删除超时属性的键，直到腾出空间
+  * volatile-ttl : 根据键值对象的ttl属性，删除最近要过期的数据，如果没有，退回到noeviction
+
+当redis一直工作在内存溢出的状态下且设置非noeviction 策略时，会频繁触发回收内存操作，影响redis性能。
+
+## 内存优化
+
+**redisObject对象**
+
+value（值）对象由redisObject 来封装
+
+```C
+typedef struct redisObject {
+    // 对象的类型，string ，hash , list , set , zset 
+    unsigned type:4;
+    // 内部编码类型
+    unsigned encoding:4;
+  // LRU计时时钟:记录对象最后一次访问时间，辅助LRU算法
+    unsigned lru:22; /* lru time (relative to server.lruclock) */
+    // 引用计数器
+    int refcount;
+    // 数据指针，如果是整数或是长度<=39字节的字符串，内部编码为embint，则直接存储，这样只要一次内存分配操作。
+    void *ptr;	
+} robj;
+```
+
+可以使用 `scan + object idletime` 命令查询长时间不访问的键进行清理
+
+**如果是整数或是长度<=39字节的字符串，内部编码为embint，则直接存储，这样只要一次内存分配操作。**
+
+**缩减键值对象**
+
+* key :键值越短越好，如 `u:{uid}:fs:nt:{fid}`
+* value ，存储时去掉不必要的属性，选择高效的序列化工具
+  * golang序列化工具：https://github.com/smallnest/gosercomp ,可以选择**MessagePack**和**gogo/protobuf**都可以;
+  * 如果存储json 等文本数据时，内存紧张情况下可以考虑压缩后存入，压缩工具推荐：google的 [snappy](https://github.com/google/snappy)
+
+**共享对象池**
+
+redis 内部有 [0-9999]的整数对象池，创建大量整数类型时redisObject 存在内存开销。除了整数值对象，list ,  hash , set , zset 内部元素也可以使用整数对象池。
+
+当设置了 	`maxmemory`并启用了LRU相关的淘汰策略算法时，redis  会禁止使用共享对象池。
+
+**字符串优化**
+
+Redis 自己实现了 简单动态字符串( simple dynamic string   , SDS) 字符串结构。
+
+```C
+struct SDS{
+  int len;
+  int free;
+  char buf[];
+};
+```
+
+* O(1)时间复杂度获取字符串长度，未用长度，已用长度
+* 可用来保存字节数组
+* 预分配机制，故尽量少用 append , setrange  ，改为直接用 set 修改字符串，避免预分配带来的内存碎片化
+  * 第一次创建len 属性等于实际大小
+  * 修改后如果已有free数据空间不足1M，每次预分配1倍容量，比如：原有 `len=60,free=0`; 追加60 byte后， 预分配120 byte :`len=60+60+120`
+  * 如果已有free数据空间大于1M，每次预分配 1M 。
+* 惰性删除机制，字符串缩减后不释放，作为预分配空间保留
+
+**字符串重构**
+
+比如把 json 数据用hash 结构，同时使用hmget , hmset 修改部分字段。
+
+合理设置内部编码转换的限制参数，比如某个属性的字符串最长长度是65，而 `hash-max-ziplist-value`默认是64,修改此参数为64 用ziplist 编码可以节省内存，但不要将此限制设置太大，因为ziplist 编码在长度过长后性能会下降。
+
+**编码优化**
+
+**控制编码类型**
+
+编码类型转换只能是从小内存转向大内存，如果重新设置参数后，需要 redis 重启加载数据才能完成转换。
+
+**hash**
+
+`hash-max-ziplist-value` 和  `hash-max-ziplist-entries` 
+
+* ziplist 
+* hashtable
+
+**list**
+
+3.2版本前
+
+`list-max-ziplist-value` 和  `list-max-ziplist-entries` 
+
+* ziplist
+* linkedlist
+
+3.2版本及以后，新的编码：**quicklist**
+
+`list-max-ziplist-size` ：表示最大压缩空间和长度，最大空间使用 [-5-1] , 默认是 -2 ， 表示8K，正整数表示最大压缩长度
+
+`list-compress-depth` : 表示最大压缩深度，默认为0 ，不压缩
+
+**set**
+
+`set-max-intset-entries`
+
+* intset
+* hashtable
+
+**zset**
+
+`zset-max-ziplist-value` 和  `zset-max-ziplist-entries` 
+
+* ziplist
+* skiplist
+
+
+
+**ziplist编码**
+
+采用内存线性连续的结构，适合存储小对象和长度有限的数据
+
+| zlbytes | 记录整个压缩列表的长度 |
+| ------- | ----------- |
+| zltail  | 记录距离尾节点的偏移量 |
+| zllen   | 记录压缩链表的节点数量 |
+| entry-1 | 记录具体的节点     |
+| entry-2 |             |
+| ...     |             |
+| zlend   | 记录链表结尾，1个字节 |
+
+entry结构
+
+| pre_entry_bytes_length |      |
+| ---------------------- | ---- |
+| encoding               |      |
+| Contents               |      |
+
+**intset编码**
+
+内部表现为，存储有序，不重复的整数集
+
+| encoding | 表示整数类型，有三种：int-16 , int-32 , int-64 |
+| -------- | ----------------------------------- |
+| length   | 表示集合元素个数                            |
+| contents | 整数数组                                |
+
+使用时尽量保持整数范围一致，提前预估，防止个别大整数触发集合升级操作，产生内存浪费。
+
+**控制键数量**
+
+不要把大量使用 get/set 这种api , 可以考虑hash结构， 把大量键分组映射到hash结构中，降低键的个数。这种做法非常适合于存储小对象的场景，故注意采用ziplist 编码，采用 hashtable 反而会增加内存消耗；
+
