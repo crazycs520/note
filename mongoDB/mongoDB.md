@@ -92,12 +92,6 @@ db.students.insertMany([
 
 
 
-# performance improve
-
-## [mongoose](./mongoose.md)
-
-
-
 
 
 
