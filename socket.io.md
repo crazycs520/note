@@ -18,7 +18,7 @@ const io = require('socket.io-client');
 const adminSocket = io('/admin', { forceNew: true });
 ```
 
-```
+```javascript
 const socket = io('http://localhost', {
   path: '/myownpath'
 });
@@ -26,7 +26,7 @@ const socket = io('http://localhost', {
 
 * With query parameters
 
-```Nodejs
+```javascript
 const socket = io('http://localhost?token=abc');
 
 // server-side

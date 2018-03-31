@@ -6,6 +6,25 @@
 
 [golang使用vendor目录来管理依赖包](http://www.jianshu.com/p/e52e3e1ad1c0)
 
+* pprof 
+
+  * https://stackimpact.com/blog/profiling-go-applications-in-production/
+
+  ```Go
+  //code
+  import _ "net/http/pprof"
+  http.ListenAndServe("localhost:6060", nil)
+
+  #shell
+  go tool pprof http://localhost:6060/debug/pprof/profile
+  ```
+
+* sync.Pool  ， 
+
+  * https://www.jianshu.com/p/2bd41a8f2254	 简介
+  * https://blog.cloudflare.com/recycling-memory-buffers-in-go/   垃圾回收，和 pool 简单实现和超时删除实现
+  * https://github.com/cloudflare/golibs/tree/master/bytepool  替代
+
 ## 从源码安装Go
 
 [Installing Go from source](https://golang.org/doc/install/source)
@@ -181,11 +200,10 @@ Go 1 兼容性指南这么说：
 
 # 并发篇
 
-[Go by Example: Worker Pools](https://gobyexample.com/worker-pools) : 用channels 实现jobs 分发和 result 返回
-
-[调试利器：dump goroutine 的 stacktrace](http://colobu.com/2016/12/21/how-to-dump-goroutine-stack-traces/)
-
-go 运行速度提升编码：http://wetest.qq.com/lab/view/259.html，伪共享，无锁队列，内存管理
+* [Go by Example: Worker Pools](https://gobyexample.com/worker-pools) : 用channels 实现jobs 分发和 result 返回
+* [调试利器：dump goroutine 的 stacktrace](http://colobu.com/2016/12/21/how-to-dump-goroutine-stack-traces/)
+* go 运行速度提升编码：http://wetest.qq.com/lab/view/259.html，伪共享，无锁队列，内存管理
+* [Go 性能调优，介绍调优方法，书籍，心得](https://stackimpact.com/docs/go-performance-tuning/)
 
 
 

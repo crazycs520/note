@@ -1,3 +1,55 @@
+## 源码阅读笔记
+
+
+
+
+
+
+
+### util
+
+* goroutine_pool/gp.go
+
+  概念同线程池，复用 goroutine 。
+
+  ```Go
+  // Pool is a struct to represent goroutine pool.
+  type Pool struct {
+  	head        goroutine							// 环形链表结构， head 指向 空闲 goroutine 的 head
+  	tail        *goroutine
+  	count       int										// 可用 goroutine  的数量
+  	idleTimeout time.Duration					// goroutine 空闲超时 后 dead
+  	sync.Mutex
+  }
+  func (pool *Pool) Go(f func())			//添加新 job 给 goroutine 去做, 效果同  go f()
+  func (pool *Pool) get() *goroutine  // 从 goroutine pool 中获取  空闲 goroutine , 即  head 指针指向的  goroutine
+  func (pool *Pool) alloc() *goroutine // 生成 新的 goroutine
+
+  // goroutine is actually a background goroutine, with a channel binded for communication.
+  type goroutine struct {
+  	ch     chan func()
+  	next   *goroutine
+  	status int32
+  }
+  func (g *goroutine) put(pool *Pool)					//  把 goroutine 放回  goroutine pool
+  func (g *goroutine) workLoop(pool *Pool)		// 执行 job  和   idle 超时检测
+  ```
+
+### Prometheus 系统监控 + Grafana 可视化
+
+* [官网文档](https://prometheus.io/docs/introduction/overview/)
+* [GoDoc](https://godoc.org/github.com/prometheus/client_golang/prometheus)  golang client.   have basic example.
+
+
+
+
+
+* V2ray use PAC Mode is faster when visit internal website.
+
+
+
+* ​
+* ​
 * [单机使用 Docker Compose 快速构建集群](https://github.com/pingcap/docs-cn/blob/master/op-guide/docker-compose.md)
 * http://chuansong.me/n/720316151966
 * 分布式追踪
@@ -35,6 +87,8 @@ https://zhuanlan.zhihu.com/p/33711664
 https://zhuanlan.zhihu.com/p/34419461
 
 https://mp.weixin.qq.com/s?__biz=MzI3NDIxNTQyOQ==&mid=2247484187&idx=1&sn=90a7ce3e6db7946ef0b7609a64e3b423&chksm=eb162471dc61ad679fc359100e2f3a15d64dd458446241bff2169403642e60a95731c6716841&scene=4  join优化， pipeline
+
+https://www.jianshu.com/p/721df5b4454b  google percolator 事务模型
 
 
 

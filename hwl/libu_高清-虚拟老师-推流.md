@@ -37,14 +37,24 @@
 
    ```shell
    cd ..
-   node change_date.js  #等待2分钟，然后 ctrl + c 退出
+   node change_date.js  #加一个校验**************************等待没有输出后，等2分钟，然后 ctrl + c 退出   修改励步历史数据脚本
    ```
 
 5. 修改配置文件, 可以直接用之前线上的配置文件， 修改和添加几个参数即可：
 
+   <img src="../images/vt02.png" style="zoom:50%" />
+
 ```Json
 "order_warn_time_out": 1000*60*60*24,      //约课超时			这是修改，原来就有的，约课超时改为24小时
 "transcoding_time_out": 1000*60*2,        //转码超时时间   这是新增，原来没有 
+
+//
+"im":{								//新增
+        "fetch_im_url":"https://test-api.weclassroom.com/service/chat",
+        "sign":1,
+    },
+"leap_im_url":"http://101.201.152.103:10080",			//修改
+"url_im_suffix":"/control",        // namespace     新增
 ```
 
 6. 启动supervisorctl 
@@ -75,15 +85,21 @@
 4. 新增表
 
    ```Shell
+   #/root/firstleaprecord
+    . ./firstleap/bin/activate				#启动python 虚拟环境
    #/root/firstleaprecord/code
    python model.py
    ```
 
    ​
 
-5. 从代码库中更新文件如下
+5. 从代码库中更新文件如下,
 
-   ```
+   代码库地址: http://10.2.250.21/zby_o2o/record.git      
+
+   分支： develop
+
+   ```shell
    #/root/firstleaprecord/code
    commands.py
    idc_client_nsp.py 
@@ -97,16 +113,16 @@
 
 6. 新增配置文件参数
 
-   ```
+   ```shell
    wget_path=/usr/bin/wget			#wget 命令路径，下载文件用，机器上没有则需要安装
 
-   DOWNLOAD_RATE=1000k				#  下载速度限制，
+   DOWNLOAD_RATE=2560k				#  下载速度限制，Byte		具体值需要找运维确认
 
    #max number of video
-   MAX_VIDEO_NUM=1000						#缓存视频做大数量，可以适当调整
+   MAX_VIDEO_NUM=1000						#缓存视频做大数量，可以适当调整 ， 具体值需要找运维确认
 
    #max size of all video ,   G
-   MAX_VIDEO_SIZE=1000						#缓存视频磁盘最大容量，单位  G
+   MAX_VIDEO_SIZE=1000						#缓存视频磁盘最大容量，单位  G   ， 具体值需要找运维确认
    ```
 
    ​
@@ -117,10 +133,20 @@
    #/root/firstleaprecord
     . ./firstleap/bin/activate				#启动python 虚拟环境
     cd code
-    python change_date.py			#change_date.py 是代码库里面新增的文件，以前没有
+    python change_date.py			#change_date.py 是代码库里面新增的文件，以前没有		,     测试 需要测试
    ```
 
 8. `supervisorctl reload  `
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -205,7 +231,7 @@ CREATE TABLE IF NOT EXISTS video_list (
 				//应该不存在这种状态，如果转码成功，约课时 video_url_list 里面就应该包含此 清晰度的 url 了 
 			else if 转码超时
             	返回约课失败
-            else if 转码失败
+       else if 转码失败
             	// 重试转码
                 跟新 record_id , resolution 的状态设置为 转码中
                 调用阿里云oss转码_API
@@ -300,16 +326,15 @@ CREATE TABLE IF NOT EXISTS video_list (
 4. 配置文件 .env 新增参数
 
    ```shell
-   #wget 命令路径
-   wget_path=/usr/bin/wget
-   #下载限速
-   DOWNLOAD_RATE=1000k
+   wget_path=/usr/bin/wget			#wget 命令路径，下载文件用，机器上没有则需要安装
+
+   DOWNLOAD_RATE=1000k				#  下载速度限制，byte		具体值需要找运维确认
 
    #max number of video
-   MAX_VIDEO_NUM=1000
+   MAX_VIDEO_NUM=1000						#缓存视频做大数量，可以适当调整 ， 具体值需要找运维确认
 
    #max size of all video ,   G
-   MAX_VIDEO_SIZE=10
+   MAX_VIDEO_SIZE=1000						#缓存视频磁盘最大容量，单位  G   ， 具体值需要找运维确认
    ```
 
 
