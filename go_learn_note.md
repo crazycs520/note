@@ -6,6 +6,10 @@
 
 [golang使用vendor目录来管理依赖包](http://www.jianshu.com/p/e52e3e1ad1c0)
 
+
+
+
+
 * pprof 
 
   * https://stackimpact.com/blog/profiling-go-applications-in-production/
@@ -23,7 +27,37 @@
 
   * https://www.jianshu.com/p/2bd41a8f2254	 简介
   * https://blog.cloudflare.com/recycling-memory-buffers-in-go/   垃圾回收，和 pool 简单实现和超时删除实现
-  * https://github.com/cloudflare/golibs/tree/master/bytepool  替代
+
+    ​
+
+  <img src="./images/pool.png" style="zoom:60%" />
+
+* 避免 GC 过多的技巧，来自Uber工程师的一些避免过度 GC 的损耗，如果避免的技巧，如少用指针，缓冲池等
+
+  https://www.youtube.com/watch?v=q1h2g84EX1M
+
+* 连接池
+
+  * http://io.upyun.com/2016/01/28/how-to-use-redis-pool-in-go/
+  * https://yushuangqi.com/blog/2016/liao-liao-tcplian-jie-chi.html
+  * https://blog.csdn.net/pangudashu/article/details/54291558      github.com/go-sql-driver/mysql 连接池分析
+
+* 时间轮
+
+  * http://www.10tiao.com/html/249/201703/2651959961/1.html
+  * http://xiaorui.cc/2018/03/28/%E5%88%86%E6%9E%90golang%E5%AE%9A%E6%97%B6%E5%99%A8cpu%E4%BD%BF%E7%94%A8%E7%8E%87%E9%AB%98%E7%9A%84%E7%8E%B0%E8%B1%A1/
+
+* string 和 []byte   ，由于`Go`语言中字符串是不可修改的，因此如果要修改其中内容，就要把其转化成`byte slice`。此外，`byte slice`也可以转化成字符串。这两种转化都需要分配一块新的内存，然后进行内容拷贝。
+
+  * https://sheepbao.github.io/post/golang_byte_slice_and_string/
+
+
+
+
+
+
+
+
 
 ## 从源码安装Go
 
@@ -225,3 +259,22 @@ Go 1 兼容性指南这么说：
 
 [go concurrency made easy](https://www.youtube.com/watch?v=yKQOunhhf4A)  推荐~
 
+* goroutine调度
+
+  * 基本的 G , P， M概念
+
+  * 没有抢占式调度（对于没有函数调用，纯算法循环计算的G，scheduler依然无法抢占）
+
+  * 网络IO轮询器（  netpoller  ），在基础的异步IO组件上，实现高效的网络IO。
+
+  * go并发编程第四章
+
+  * https://tonybai.com/2017/06/23/an-intro-about-goroutine-scheduler/
+
+  * http://colobu.com/2017/05/04/go-scheduler/
+
+    * go tool trace](https://making.pusher.com/go-tool-trace/index.html)
+
+    ​
+
+* [[Debugging performance issues in Go programs](https://software.intel.com/en-us/blogs/2014/05/10/debugging-performance-issues-in-go-programs)]  调试利器

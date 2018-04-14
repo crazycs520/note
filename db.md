@@ -1,3 +1,23 @@
+* LSM树介绍：
+
+http://www.open-open.com/lib/view/open1424916275249.html
+
+https://juejin.im/post/5a58542b6fb9a01c9064ce44
+
+* badger 一个高性能的LSM K/V store
+
+  http://colobu.com/2017/10/11/badger-a-performant-k-v-store/
+
+* bolt DB 源码分析
+
+  https://lrita.github.io/2017/05/22/boltdb-persistence-3/
+
+  http://www.d-kai.me/boltdb%E4%B9%8Bbucket%E4%B8%80/
+
+
+
+
+
 # 数据库选型
 
 
