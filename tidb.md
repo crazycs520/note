@@ -1,6 +1,8 @@
 ## 源码阅读笔记
 
-
+* 原子种实现
+* 系统时钟会跳检测
+* goroutine pool
 
 
 
@@ -35,6 +37,8 @@
   func (g *goroutine) workLoop(pool *Pool)		// 执行 job  和   idle 超时检测
   ```
 
+
+
 ### Prometheus 系统监控 + Grafana 可视化
 
 * [官网文档](https://prometheus.io/docs/introduction/overview/)
@@ -44,12 +48,6 @@
 
 
 
-* V2ray use PAC Mode is faster when visit internal website.
-
-
-
-* ​
-* ​
 * [单机使用 Docker Compose 快速构建集群](https://github.com/pingcap/docs-cn/blob/master/op-guide/docker-compose.md)
 * http://chuansong.me/n/720316151966
 * 分布式追踪
