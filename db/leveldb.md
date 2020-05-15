@@ -2,6 +2,8 @@
 
 LevelDB 是一个 key-value 持久化存储引擎，类似于单个 [Bigtable tablet (section 5.3)](http://research.google.com/archive/bigtable.html) 的实现。
 
+![WriteBatch 编码](../images/leveldb04.png)
+
 LevelDB 提供了简洁的接口：`Put`，`Delete`， `Get`。
 
 
@@ -41,7 +43,7 @@ Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {
 
 简单的写入流程如下：
 
-1. 检查是否需要 compact
+1. 检查是否需要 compaction
 2. 分配 sequence
 3. 写 WAL 日志。
 4. 如果 `WriteOptions` 中的 `sync` 是 true，则需要等待 WAL 日志 flush 完成。
@@ -66,9 +68,40 @@ memtable 内部实现是 [skip-list](https://homepage.cs.uiowa.edu/~ghosh/skip.p
 2. 新建 node 并随机分配一个索引层高。
 3. 插入 node 并更新各层的索引信息。
 
-
-
 skip-list 不支持并发写入，但是支持 1 个写入的同时多个并发读。skip-list 中 node 的各层索引的更新和读取是采用的原子操作，使用 `release-acquire` 的内存顺序。
+
+
+
+### Compaction 介绍
+
+BigTable 论文的 5.4 节中介绍有3种 compact, 下面逐个介绍。
+
+LevelDB 中的 SSTable 文件组织分成多层，但是 BigTable 论文中 Tablet 的架构并没有明确指出 SSTable 文件有多层，所以 LevelDB 的 compation 实现和论文里面描述我觉得有一些出入，也可能论文里面没有细说。
+
+<img src="../images/bigtable05.png" alt="Bigtable Tablet 架构" style="zoom:50%;" />
+
+
+
+#### minor compaction
+
+当 memtable 的大小超过  `write_buffer_size` 限制后，会将写满了的 memtable 转换成 immutable memtable，并新建一个 memtable 和 WAL 文件。然后其、后台启动一个线程将 immutable memtable 转换成 SSTable 文件。
+
+minor compaction 有 2 个作用：
+
+1. 控制（减少）内存的使用量。
+2. 减少重启时从 WAL 日志中恢复的时间。
+
+#### merging compaction
+
+将一些 SSTable 和 memtable 作为输入进行 merge compaction 后输出到一个 SSTable 文件。
+
+#### major compaction
+
+将所有的 SSTable 作为输入进行 merging compaction 后输出到一个 SSTable 文件叫做 major compaction。
+
+Major compaction 输出的 SSTable 文件是不含被 delete 的数据的，这样可以回收资源。 
+
+### Compaction 实现
 
 
 

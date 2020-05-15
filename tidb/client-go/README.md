@@ -123,3 +123,5 @@ func (c *Client) sendReq(ctx context.Context, key []byte, req *rpc.Request) (*rp
 
 ## Txn KV
 
+[TiKV 事务模型概览](https://pingcap.com/blog-cn/tidb-transaction-model/)
+
