@@ -68,6 +68,26 @@ memtable 内部实现是 [skip-list](https://homepage.cs.uiowa.edu/~ghosh/skip.p
 2. 新建 node 并随机分配一个索引层高。
 3. 插入 node 并更新各层的索引信息。
 
+
+
+#### KeyComparator
+
+
+
+用户写入的数据在 memtable 和 SSTable 中都是按照 key 大小有序排列的。底层存储的是 internalKey，其编码如下：
+
+![写入 key-value 编码](../images/leveldb05.png)
+
+具体排序规则是：
+
+* 默认按照user_key 的 []byte 比较，从小到大排序。
+  * 用户也可以在初始化数据库时，传入自定义的 comparator 。
+* 当 user_key 一样时，按 sequence_number 从大到小排序。即对于相同 user_key 的多次操作，最新的操作总是排在前面。
+
+
+
+#### 并发
+
 skip-list 不支持并发写入，但是支持 1 个写入的同时多个并发读。skip-list 中 node 的各层索引的更新和读取是采用的原子操作，使用 `release-acquire` 的内存顺序。
 
 
@@ -102,6 +122,30 @@ minor compaction 有 2 个作用：
 Major compaction 输出的 SSTable 文件是不含被 delete 的数据的，这样可以回收资源。 
 
 ### Compaction 实现
+
+#### minor compaction
+
+`CompactMemTable` 函数将 immutable memtable 转换成 SSTable 文件。用 `MemTableIterator` 遍历一遍 skip list，写出到 SSTable 文件。写完后将  immutable memtable 的内存释放。
+
+默认将 immutable memtable 转换成的 SSTable 文件存放在那一层呢？默认是放在第 0 层，如果和这一层以及下一层已有的SSTable 文件的 key 范围没有重叠，且和下下层的重叠的文件总大小不超过 10 * max_file_size （避免在单次 merge compaction 时输入文件过大），则可以直接将 SST 文件下沉；最多下沉到第 2 层。详见函数 `PickLevelForMemTableOutput`。
+
+#### merging compaction
+
+merging compaction 是将第 N 层的部分 SSTable 文件和 N+1 层的部分 SST 文件做 merge, 然后输出写入到 N+1 层的 SST 文件。
+
+##### 第 N 层是哪一层？
+
+
+
+##### 第 N 层的部分文件是哪一部分文件？
+
+
+
+
+
+#### 总结
+
+`CompactMemTable` 这一步并没有做去重，即如果重复更新同一个 key 1万次，最终从 immutable memtable 导出到 SSTable 中还是会有 1万条数据。所以用户在短时间内可以使用 snapshot 读到某个历史版本的数据。单个人
 
 
 
