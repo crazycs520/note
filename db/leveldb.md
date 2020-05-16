@@ -2,7 +2,7 @@
 
 LevelDB 是一个 key-value 持久化存储引擎，类似于单个 [Bigtable tablet (section 5.3)](http://research.google.com/archive/bigtable.html) 的实现。
 
-![WriteBatch 编码](../images/leveldb04.png)
+![LevelDB 架构](../images/leveldb04.png)
 
 LevelDB 提供了简洁的接口：`Put`，`Delete`， `Get`。
 
@@ -37,7 +37,7 @@ Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {
 * value_size: value 的大小。
 * value: 用户写入 value 的值。
 
-可以使用 `WriteBatch`单次写入多个 key-value 来提升写入性能。
+可以使用 `WriteBatch` 一次写入多个 key-value 来提升写入性能。
 
 ### Write
 
@@ -129,25 +129,84 @@ Major compaction 输出的 SSTable 文件是不含被 delete 的数据的，这�
 
 默认将 immutable memtable 转换成的 SSTable 文件存放在那一层呢？默认是放在第 0 层，如果和这一层以及下一层已有的SSTable 文件的 key 范围没有重叠，且和下下层的重叠的文件总大小不超过 10 * max_file_size （避免在单次 merge compaction 时输入文件过大），则可以直接将 SST 文件下沉；最多下沉到第 2 层。详见函数 `PickLevelForMemTableOutput`。
 
+
+
+由于 第 0 层的 SSTable 都是直接从 immutable memtable 导出的，没有和其他的文件做 merge 处理，所以第 0 层存在 key range 有重叠的 SSTable，由于这个原因，每次在 L0 层读一个 key 的时候，可能要读取多个 SSTable 文件。
+
 #### merging compaction
 
-merging compaction 是将第 N 层的部分 SSTable 文件和 N+1 层的部分 SST 文件做 merge, 然后输出写入到 N+1 层的 SST 文件。
+merging compaction 是将第 N 层的部分 SSTable 文件和下一层的 key range 重叠部分 SST 文件做 merge, 然后输出写入到 N+1 层的 SST 文件。
+
+和 minor compaction 不同，merging compaction 过程中会删除同一个 key 的多个数据，只保留最新的数据。
+
+Mergeing compaction 可以保证，从第 1 层开始，后面每层的文件的 key range 都不存在重叠的情况。如果要读一个 key, 可以先二分查找定位到 key 属于的文件，然后进行查找即可。
 
 ##### 第 N 层是哪一层？
 
+**策略1**
 
+对每一层计算一个 score, 取 score 最大且 score > 1 的层。 score 的计算方式如下：
+
+1. 对于第 0 层，score = L0_file_num / L0_compactionTriger。即 L0 层的 SSTable 文件个数除以 L0 触发 compaction 的文件个数阈值，计算结果是 double 类型。
+
+2. 对于其它层， score = total_file_size / level_max_size。即该层所有 SSTable 的文件总大小除以该层总大小的阈值。各层的文件总大小阈值如下：
+
+   *  L1: 10MB
+   *  L2: 100MB
+   *  LN: 10 * L(N-1)
+
+score 的计算对 L0 按照文件数据而不是文件总大小处理的理由是：
+
+* 对于 write-buffer 很大的场景下，避免频繁对进行 L0 进行 compact
+* 由于读数据需要读 SSTable 时，每次都要对 L0 层的所有文件做 merge read, 所以避免 L0 层的文件过多影响读取。
+
+**策略2**
+
+如果策略 1 没有找到需要 compact 的层，就会尝试策略2。
+
+策略2是在发现一个 SSTable 文件在读取时累计的 seek 操作超过阈值后，就会选择这个这个文件所在的层以及该文件进行  compaction。这个文件的 seek 阈值的计算如下：
+
+> ```leveldb
+>   // We arrange to automatically compact this file after
+>   // a certain number of seeks.  Let's assume:
+>   //   (1) One seek costs 10ms
+>   //   (2) Writing or reading 1MB costs 10ms (100MB/s)
+>   //   (3) A compaction of 1MB does 25MB of IO:
+>   //         1MB read from this level
+>   //         10-12MB read from next level (boundaries may be misaligned)
+>   //         10-12MB written to next level
+>   // This implies that 25 seeks cost the same as the compaction
+>   // of 1MB of data.  I.e., one seek costs approximately the
+>   // same as the compaction of 40KB of data.  We are a little
+>   // conservative and allow approximately one seek for every 16KB
+>   // of data before triggering a compaction.
+> ```
+
+```go
+      allowed_seeks = (file_size / 16384);
+      if (allowed_seeks < 100) allowed_seeks = 100;
+
+```
+
+ 
 
 ##### 第 N 层的部分文件是哪一部分文件？
 
+在查找需要 compaction 哪一层时，策略 1 只确定要对哪一层进行 compaction，但是具体选哪些文件进行 compaction 进行 compaction 呢？
 
+每次只选第 N 层的 1个文件进行 compaction，并记下这次的 key range, 下次再 compact 这一层时，接着上次 compact 的 key range 后的一个文件进行 compaction。
 
+例如下图中，假设对当前 L1 层的第一个 SSTable 文件进行 compaction，则选择 L2 层中存在 key range 重叠的 `[a,f]` 和 `g,m`  的 SSTable 文件一起作为 merging compaction, 然后将输出文件写出到 L2 层。下次再对 L1 层进行 compaction 时，会在上次 compaction 的`[a,g]` 范围之后的第一个文件进行 compaction。
 
+<img src="../images/leveldb06.png" alt="Bigtable Tablet 架构" style="zoom:30%;" />
+
+> 注1：对第 0 层进行 compaction 时，由于第 0 层文件有重叠的可能，所以上图中，会选中 L0 中的 [a,i] 和 [c,s] 文件以及 L1 中的 [a,g] 和 [h,s] 文件做 merging compaction。
+
+> 注2：再对第 N 层的某个 SSTable 进行 compaction 时，如果在 N+1 层没有找到 key range 重叠的文件，则可以直接把第 N 层的这个 SSTable 移到第 N+1 层，这个移动操作只是修改 L0 和 L1 层的 meta 信息，并不会将 SSTable 重新读写一次。
 
 #### 总结
 
 `CompactMemTable` 这一步并没有做去重，即如果重复更新同一个 key 1万次，最终从 immutable memtable 导出到 SSTable 中还是会有 1万条数据。所以用户在短时间内可以使用 snapshot 读到某个历史版本的数据。单个人
-
-
 
 ## Delete
 
@@ -155,9 +214,9 @@ merging compaction 是将第 N 层的部分 SSTable 文件和 N+1 层的部分 S
 
 ## Get
 
+在读取时，如果在 memtable 中没有找到，就会从 SSTable 中读取，从第 0 层最新的 SSTable 文件开始读，如果没有找到，就会继续在下一层找。
 
-
-
+读之前会判断 SSTable 文件的 key range 是否包含要找的 key, 如果不包含就跳过。包含则会进一步在该 SST文件中 seek 到对应的 data block 后进行读取。
 
 
 
