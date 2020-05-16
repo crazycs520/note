@@ -92,7 +92,29 @@ skip-list 不支持并发写入，但是支持 1 个写入的同时多个并发�
 
 
 
-### Compaction 介绍
+## Delete
+
+`Delete` 实现几乎和 `put` 一样，只是写入类型是 `kTypeDeletion`，其 value_length 是 0， value 是空。
+
+## Get
+
+读取流程如下：
+
+1. 如果用户没有指定 snapshot，以当前最大的 sequence_number 作为 snapshot。
+2. 在 memtable 中查找 key, 找到则返回
+3. 如果有 immutable memtable, 在 immutable memtable 中查找，找到则返回
+4. 从 SSTTable 中查找，从第 0 层最新的 SSTable 文件开始读，如果没有找到，就会继续在下一层找。
+
+在 SSTable 中查找 key 前会先判断 key 是否包含在该 SSTable 文件的 key range 之内, 如果不包含就跳过。包含则 seek 到对应的 data block 后进行查找。
+
+###  Snapshot
+
+可以使用 snapshot 读取某个历史版本的数据。先调用 `GetSnapshot` 获取一个 snapshot 以防止历史版本的数据被在 merging compaction 时被删除。注意及时调用 `ReleaseSnapshot` 来释放某个 snapshot，否则会导致历史版本数据过多。
+
+
+# Compaction
+
+## Compaction 介绍
 
 BigTable 论文的 5.4 节中介绍有3种 compact, 下面逐个介绍。
 
@@ -102,7 +124,7 @@ LevelDB 中的 SSTable 文件组织分成多层，但是 BigTable 论文中 Tabl
 
 
 
-#### minor compaction
+### minor compaction
 
 当 memtable 的大小超过  `write_buffer_size` 限制后，会将写满了的 memtable 转换成 immutable memtable，并新建一个 memtable 和 WAL 文件。然后其、后台启动一个线程将 immutable memtable 转换成 SSTable 文件。
 
@@ -111,29 +133,33 @@ minor compaction 有 2 个作用：
 1. 控制（减少）内存的使用量。
 2. 减少重启时从 WAL 日志中恢复的时间。
 
-#### merging compaction
+### merging compaction
 
 将一些 SSTable 和 memtable 作为输入进行 merge compaction 后输出到一个 SSTable 文件。
 
-#### major compaction
+### major compaction
 
 将所有的 SSTable 作为输入进行 merging compaction 后输出到一个 SSTable 文件叫做 major compaction。
 
 Major compaction 输出的 SSTable 文件是不含被 delete 的数据的，这样可以回收资源。 
 
-### Compaction 实现
+## Compaction 实现
 
-#### minor compaction
+在读取或写入时，如果发现需要 compaction，LevelDB 会单独起一个线程进行 compaction 的操作。详见 `MaybeScheduleCompaction` 函数。
+
+### minor compaction
 
 `CompactMemTable` 函数将 immutable memtable 转换成 SSTable 文件。用 `MemTableIterator` 遍历一遍 skip list，写出到 SSTable 文件。写完后将  immutable memtable 的内存释放。
 
 默认将 immutable memtable 转换成的 SSTable 文件存放在那一层呢？默认是放在第 0 层，如果和这一层以及下一层已有的SSTable 文件的 key 范围没有重叠，且和下下层的重叠的文件总大小不超过 10 * max_file_size （避免在单次 merge compaction 时输入文件过大），则可以直接将 SST 文件下沉；最多下沉到第 2 层。详见函数 `PickLevelForMemTableOutput`。
 
-
-
 由于 第 0 层的 SSTable 都是直接从 immutable memtable 导出的，没有和其他的文件做 merge 处理，所以第 0 层存在 key range 有重叠的 SSTable，由于这个原因，每次在 L0 层读一个 key 的时候，可能要读取多个 SSTable 文件。
 
-#### merging compaction
+
+
+> 注： `CompactMemTable` 这一步并没有做去重，所以即使重复更新同一个 key 1万次，最终从 immutable memtable 导出到 SSTable 中还是会有 1万条数据。
+
+### merging compaction
 
 merging compaction 是将第 N 层的部分 SSTable 文件和下一层的 key range 重叠部分 SST 文件做 merge, 然后输出写入到 N+1 层的 SST 文件。
 
@@ -141,24 +167,22 @@ merging compaction 是将第 N 层的部分 SSTable 文件和下一层的 key ra
 
 Mergeing compaction 可以保证，从第 1 层开始，后面每层的文件的 key range 都不存在重叠的情况。如果要读一个 key, 可以先二分查找定位到 key 属于的文件，然后进行查找即可。
 
-##### 第 N 层是哪一层？
+#### 第 N 层是哪一层？
 
 **策略1**
 
 对每一层计算一个 score, 取 score 最大且 score > 1 的层。 score 的计算方式如下：
 
 1. 对于第 0 层，score = L0_file_num / L0_compactionTriger。即 L0 层的 SSTable 文件个数除以 L0 触发 compaction 的文件个数阈值，计算结果是 double 类型。
-
 2. 对于其它层， score = total_file_size / level_max_size。即该层所有 SSTable 的文件总大小除以该层总大小的阈值。各层的文件总大小阈值如下：
-
-   *  L1: 10MB
-   *  L2: 100MB
-   *  LN: 10 * L(N-1)
+   - L1: 10MB
+   - L2: 100MB
+   - LN: 10 * L(N-1)
 
 score 的计算对 L0 按照文件数据而不是文件总大小处理的理由是：
 
-* 对于 write-buffer 很大的场景下，避免频繁对进行 L0 进行 compact
-* 由于读数据需要读 SSTable 时，每次都要对 L0 层的所有文件做 merge read, 所以避免 L0 层的文件过多影响读取。
+- 对于 write-buffer 很大的场景下，避免频繁对进行 L0 进行 compact
+- 由于读数据需要读 SSTable 时，每次都要对 L0 层的所有文件做 merge read, 所以避免 L0 层的文件过多影响读取。
 
 **策略2**
 
@@ -183,14 +207,15 @@ score 的计算对 L0 按照文件数据而不是文件总大小处理的理由�
 > ```
 
 ```go
-      allowed_seeks = (file_size / 16384);
-      if (allowed_seeks < 100) allowed_seeks = 100;
-
+allowed_seeks = file_size / 16384
+if (allowed_seeks < 100) {
+  allowed_seeks = 100
+}
 ```
 
  
 
-##### 第 N 层的部分文件是哪一部分文件？
+#### 第 N 层的部分文件是哪一部分文件？
 
 在查找需要 compaction 哪一层时，策略 1 只确定要对哪一层进行 compaction，但是具体选哪些文件进行 compaction 进行 compaction 呢？
 
@@ -204,23 +229,11 @@ score 的计算对 L0 按照文件数据而不是文件总大小处理的理由�
 
 > 注2：再对第 N 层的某个 SSTable 进行 compaction 时，如果在 N+1 层没有找到 key range 重叠的文件，则可以直接把第 N 层的这个 SSTable 移到第 N+1 层，这个移动操作只是修改 L0 和 L1 层的 meta 信息，并不会将 SSTable 重新读写一次。
 
-#### 总结
-
-`CompactMemTable` 这一步并没有做去重，即如果重复更新同一个 key 1万次，最终从 immutable memtable 导出到 SSTable 中还是会有 1万条数据。所以用户在短时间内可以使用 snapshot 读到某个历史版本的数据。单个人
-
-## Delete
-
-`Delete` 实现几乎和 `put` 一样，只是写入类型是 `kTypeDeletion`，其 value_length 是 0， value 是空。
-
-## Get
-
-在读取时，如果在 memtable 中没有找到，就会从 SSTable 中读取，从第 0 层最新的 SSTable 文件开始读，如果没有找到，就会继续在下一层找。
-
-读之前会判断 SSTable 文件的 key range 是否包含要找的 key, 如果不包含就跳过。包含则会进一步在该 SST文件中 seek 到对应的 data block 后进行读取。
 
 
+#SSTable 文件格式
 
-
+todo
 
 # 参考资料
 
@@ -231,4 +244,6 @@ score 的计算对 L0 按照文件数据而不是文件总大小处理的理由�
  [skip-list](https://homepage.cs.uiowa.edu/~ghosh/skip.pdf)
 
 [如何理解 C++11 的六种 memory order](https://www.zhihu.com/question/24301047)
+
+[LevelDB源码解析](https://zhuanlan.zhihu.com/p/34665791)
 
