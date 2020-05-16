@@ -233,7 +233,10 @@ if (allowed_seeks < 100) {
 
 #SSTable 文件格式
 
-todo
+see doc leveldb/doc/table_format.md
+
+todo more
+
 
 # 参考资料
 
