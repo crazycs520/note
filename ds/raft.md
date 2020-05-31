@@ -7,6 +7,8 @@
 
 
 
+
+
 #paper read note
 
 **Raft is a consensus algorithmfor managing a replicated log.**
@@ -107,7 +109,7 @@
 
     1. Reply false if term < currentTerm (§5.1)
     2. If votedFor is null or candidateId, and candidate’s log is at least as up-to-date as receiver’s log, grant vote (§5.2, §5.4)
-    3. ​
+    3. 
 
 * Rules for Servers
 
@@ -251,3 +253,10 @@ type config struct {
 
 
 
+
+
+
+
+![image-20200516173318235](/Users/cs/Library/Application Support/typora-user-images/image-20200516173318235.png)
+
+![image-20200516173520911](/Users/cs/Library/Application Support/typora-user-images/image-20200516173520911.png)
